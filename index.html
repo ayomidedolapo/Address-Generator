@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Address Pro | Fixed & Intelligent</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+    
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #eee; }
+        #map { position: absolute; top: 0; bottom: 0; left: 0; right: 0; height: 100%; width: 100%; z-index: 1; }
+        #draggable-card { position: absolute; top: 20px; right: 20px; width: 380px; z-index: 1000; background: white; border-radius: 1.5rem; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1); }
+        .drag-handle { width: 100%; height: 30px; background: #f8fafc; border-radius: 1.5rem 1.5rem 0 0; cursor: move; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #f1f5f9; }
+        .drag-dot { width: 40px; height: 5px; background: #e2e8f0; border-radius: 10px; }
+        
+        .spinner { width: 20px; height: 20px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .mic-active { animation: pulse 1.5s infinite; color: #ef4444 !important; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.2); } 100% { transform: scale(1); } }
+
+        #search-results {
+            position: absolute; top: 100%; left: 0; right: 0; background: white; border-radius: 1rem;
+            margin-top: 8px; max-height: 400px; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            display: none; z-index: 3000;
+        }
+        .result-item { padding: 12px 16px; cursor: pointer; border-bottom: 1px solid #f1f5f9; transition: all 0.2s; }
+        .result-item:hover { background: #f8fafc; }
+        .result-item b { font-size: 13px; color: #1e293b; display: block; }
+        .result-item span { font-size: 11px; color: #64748b; }
+        .result-item .meta { display: flex; justify-content: space-between; margin-top: 4px; font-size: 10px; }
+        
+        .leaflet-routing-container { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <!-- SEARCH BAR INTERFACE -->
+    <div class="fixed top-6 left-1/2 -translate-x-1/2 z-[2000] w-full max-w-md px-4">
+        <div class="relative">
+            <div class="bg-white/90 backdrop-blur-md rounded-2xl shadow-lg flex items-center p-2 border border-white">
+                <input id="searchInput" type="text" placeholder="Search a place (Press Enter)..." 
+                       class="flex-1 bg-transparent border-none outline-none px-4 text-sm font-medium text-gray-700">
+                <button id="searchBtn" class="bg-blue-600 p-2 rounded-xl text-white hover:bg-blue-700 w-10 h-10 flex items-center justify-center transition-all">
+                    <svg id="searchIcon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                </button>
+            </div>
+            <div id="search-results"></div>
+        </div>
+    </div>
+
+    <!-- DRAGGABLE CARD UI -->
+    <div id="draggable-card">
+        <div class="drag-handle" id="cardheader"><div class="drag-dot"></div></div>
+        <div class="p-8 text-center">
+            <div class="flex items-center justify-center gap-2 mb-2">
+                <h1 class="text-2xl font-bold text-gray-800">Address Generator</h1>
+                <button id="voiceBtn" class="text-blue-600 hover:text-blue-800 transition-all focus:outline-none">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                    </svg>
+                </button>
+            </div>
+            <p class="text-gray-500 mb-8 text-sm">Get your precise, well-structured address.</p>
+            <button id="locateBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition shadow-lg relative z-[1001]">Generate My Address</button>
+            
+            <div id="loader" class="hidden mt-6 text-blue-600 font-medium animate-pulse">Processing Location Data...</div>
+
+            <div id="resultBox" class="hidden mt-8 p-6 bg-blue-50 border border-blue-100 rounded-xl text-left">
+                <div class="flex justify-between items-center mb-3">
+                    <h2 class="text-xs font-bold text-blue-400 uppercase tracking-widest">Details & Intelligence</h2>
+                </div>
+                <p id="addressText" class="text-gray-800 font-semibold text-lg leading-relaxed mb-4"></p>
+                <div id="intelSection" class="mb-4 space-y-2 hidden">
+                    <div class="flex items-start gap-2">
+                        <span class="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded font-bold">NEARBY</span>
+                        <p id="landmarkText" class="text-[11px] text-gray-600 italic"></p>
+                    </div>
+                    <div class="flex items-start gap-2">
+                        <span class="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded font-bold">NETWORK</span>
+                        <p id="networkText" class="text-[11px] text-gray-600"></p>
+                    </div>
+                </div>
+                <div class="pt-4 border-t border-blue-100 flex justify-between items-center">
+                    <div>
+                        <p class="text-xs text-gray-400">Postal Code</p>
+                        <p id="postcodeText" class="font-bold text-gray-700"></p>
+                    </div>
+                    <div id="qrcode" class="bg-white p-1 rounded-lg border shadow-sm"></div>
+                </div>
+                <button onclick="copyAddress()" class="mt-4 text-xs text-blue-600 font-bold hover:underline w-full text-center uppercase tracking-wide">
+                    Copy to Clipboard
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <script>
+        let map, routingControl, userMarker, targetMarker;
+        let userPos = { lat: 7.3775, lon: 3.9470 };
+        
+        function initMap() {
+            map = L.map('map', { zoomControl: false }).setView([userPos.lat, userPos.lon], 13);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        }
+        initMap();
+
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const resultsDiv = document.getElementById('search-results');
+        const voiceBtn = document.getElementById('voiceBtn');
+        const qrContainer = document.getElementById("qrcode");
+        let qrcode = new QRCode(qrContainer, { width: 50, height: 50 });
+
+        async function syncGPS() {
+            return new Promise((resolve) => {
+                navigator.geolocation.getCurrentPosition((pos) => {
+                    userPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+                    if (userMarker) map.removeLayer(userMarker);
+                    userMarker = L.circleMarker([userPos.lat, userPos.lon], { radius: 8, color: '#fff', fillColor: '#2563eb', fillOpacity: 1, weight: 3 }).addTo(map);
+                    resolve(userPos);
+                }, () => resolve(userPos), { enableHighAccuracy: true });
+            });
+        }
+
+        // --- SEARCH EXECUTION CONTROLS (Quota Preserving) ---
+        // Removed `oninput` auto-search. The system will ONLY search when Enter is pressed.
+        searchInput.onkeypress = (e) => { 
+            if (e.key === "Enter") { 
+                performSearch(); 
+            } 
+        };
+        searchBtn.onclick = () => { performSearch(); };
+
+        async function performSearch() {
+            const query = searchInput.value;
+            if (query.length < 3) return;
+            searchBtn.innerHTML = '<div class="spinner"></div>';
+
+            try {
+                await syncGPS();
+                const res = await fetch(`http://127.0.0.1:8000/api/v1/search?query=${query}&lat=${userPos.lat}&lon=${userPos.lon}`);
+                const data = await res.json();
+                
+                resultsDiv.innerHTML = '';
+                if (data && data.length > 0) {
+                    resultsDiv.style.display = 'block';
+                    data.forEach(item => {
+                        const div = document.createElement('div');
+                        div.className = 'result-item';
+                        div.innerHTML = `
+                            <b>${item.name}</b>
+                            <span>${item.address}</span>
+                            <div class="meta">
+                                <span class="text-blue-600 font-bold">${item.dist_km} km</span>
+                                <span class="text-gray-400">🚗 ${item.travel_times.driving} • 🚶 ${item.travel_times.walking}</span>
+                            </div>
+                        `;
+                        div.onclick = () => startRouting(item);
+                        resultsDiv.appendChild(div);
+                    });
+                } else {
+                    resultsDiv.innerHTML = '<div class="p-4 text-sm text-gray-500 text-center">No locations matched in your immediate area.</div>';
+                    resultsDiv.style.display = 'block';
+                }
+            } catch (err) { 
+                console.error(err); 
+                resultsDiv.innerHTML = '<div class="p-4 text-sm text-red-500 text-center">Search error. Please try again.</div>';
+                resultsDiv.style.display = 'block';
+            } finally { 
+                searchBtn.innerHTML = `<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>`; 
+            }
+        }
+
+        async function startRouting(target) {
+            resultsDiv.style.display = 'none';
+            searchInput.value = target.name;
+            
+            if (routingControl) map.removeControl(routingControl);
+            if (targetMarker) map.removeLayer(targetMarker);
+            
+            targetMarker = L.marker([target.lat, target.lon]).addTo(map);
+            
+            routingControl = L.Routing.control({
+                waypoints: [L.latLng(userPos.lat, userPos.lon), L.latLng(target.lat, target.lon)],
+                lineOptions: { styles: [{ color: '#2563eb', opacity: 0.8, weight: 6 }] },
+                createMarker: () => null,
+                addWaypoints: false,
+                draggableWaypoints: false
+            }).addTo(map);
+
+            map.flyTo([target.lat, target.lon], 16);
+            fetchIntelligence(target.lat, target.lon, false);
+            speak(`Navigating to ${target.name}. It is ${target.dist_km} kilometers away.`);
+        }
+
+        async function fetchIntelligence(lat, lon, isSelfGenerate = false) {
+            document.getElementById('loader').classList.remove('hidden');
+            document.getElementById('resultBox').classList.add('hidden');
+            
+            try {
+                const response = await fetch(`http://127.0.0.1:8000/api/v1/generate?lat=${lat}&lon=${lon}`);
+                const result = await response.json();
+                
+                if (result && result.status === "success") {
+                    const d = result.data;
+                    document.getElementById('addressText').innerText = d.formatted_address;
+                    document.getElementById('postcodeText').innerText = d.postcode;
+                    document.getElementById('networkText').innerText = d.intelligence.network_quality.primary;
+                    
+                    if (d.formatted_address && d.formatted_address.trim() !== "") {
+                        document.getElementById('landmarkText').innerText = d.formatted_address.split(',')[0] + " Area, " + (d.city || "Local Region");
+                    } else {
+                        document.getElementById('landmarkText').innerText = "Identified Location Area, " + (d.city || "Local Region");
+                    }
+                    
+                    document.getElementById('intelSection').classList.remove('hidden');
+                    document.getElementById('resultBox').classList.remove('hidden');
+                    
+                    qrcode.clear();
+                    qrcode.makeCode(d.formatted_address);
+
+                    if (isSelfGenerate) {
+                        if (targetMarker) map.removeLayer(targetMarker);
+                        targetMarker = L.marker([lat, lon]).addTo(map);
+                        map.flyTo([lat, lon], 17);
+                    }
+                } else {
+                    alert("Could not generate address: " + (result.error || "Unknown error"));
+                }
+            } catch (err) { 
+                console.error("Fetch Intelligence Error:", err); 
+                alert("Failed to process location data. Please check your connection.");
+            } finally {
+                // FIXED: Guarantees the loader ALWAYS hides, even if the backend crashes.
+                document.getElementById('loader').classList.add('hidden');
+            }
+        }
+
+        document.getElementById('locateBtn').onclick = async () => {
+            await syncGPS();
+            fetchIntelligence(userPos.lat, userPos.lon, true);
+        };
+
+        // --- INTEGRATED VOICE AI ENGINE ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.lang = 'en-NG';
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                searchInput.value = transcript;
+                voiceBtn.querySelector('svg').classList.remove('mic-active');
+                performSearch(); // Voice auto-submits safely
+            };
+
+            recognition.onerror = () => { voiceBtn.querySelector('svg').classList.remove('mic-active'); };
+            recognition.onend = () => { voiceBtn.querySelector('svg').classList.remove('mic-active'); };
+
+            voiceBtn.onclick = () => {
+                voiceBtn.querySelector('svg').classList.add('mic-active');
+                recognition.start();
+            };
+        } else {
+            voiceBtn.style.display = 'none';
+        }
+
+        function speak(text) { window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)); }
+        function copyAddress() { const address = document.getElementById('addressText').innerText; if (address) { navigator.clipboard.writeText(address); alert("Address copied!"); } }
+
+        function makeDraggable(elmnt) {
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+            const header = document.getElementById("cardheader");
+            header.onmousedown = (e) => {
+                e.preventDefault(); pos3 = e.clientX; pos4 = e.clientY;
+                document.onmouseup = () => { document.onmouseup = null; document.onmousemove = null; };
+                document.onmousemove = (e) => {
+                    e.preventDefault(); pos1 = pos3 - e.clientX; pos2 = pos4 - e.clientY; pos3 = e.clientX; pos4 = e.clientY;
+                    elmnt.style.top = (elmnt.offsetTop - pos2) + "px"; elmnt.style.left = (elmnt.offsetLeft - pos1) + "px"; elmnt.style.right = 'auto';
+                };
+            };
+        }
+        makeDraggable(document.getElementById("draggable-card"));
+        document.addEventListener('click', (e) => { if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) { resultsDiv.style.display = 'none'; } });
+    </script>
+</body>
+</html>
