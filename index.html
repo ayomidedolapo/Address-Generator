@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Address Pro | Fixed & Intelligent</title>
+    <title>Address Pro | Fixed & Clean</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -40,11 +40,11 @@
 
     <div id="map"></div>
 
-    <!-- SEARCH BAR INTERFACE -->
+    <!-- CLEAN MODALLESS SEARCH CONTAINER -->
     <div class="fixed top-6 left-1/2 -translate-x-1/2 z-[2000] w-full max-w-md px-4">
         <div class="relative">
             <div class="bg-white/90 backdrop-blur-md rounded-2xl shadow-lg flex items-center p-2 border border-white">
-                <input id="searchInput" type="text" placeholder="Search a place (Press Enter)..." 
+                <input id="searchInput" type="text" placeholder="Search a place, pharmacy, hospital (Press Enter)..." 
                        class="flex-1 bg-transparent border-none outline-none px-4 text-sm font-medium text-gray-700">
                 <button id="searchBtn" class="bg-blue-600 p-2 rounded-xl text-white hover:bg-blue-700 w-10 h-10 flex items-center justify-center transition-all">
                     <svg id="searchIcon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -134,8 +134,6 @@
             });
         }
 
-        // --- SEARCH EXECUTION CONTROLS (Quota Preserving) ---
-        // Removed `oninput` auto-search. The system will ONLY search when Enter is pressed.
         searchInput.onkeypress = (e) => { 
             if (e.key === "Enter") { 
                 performSearch(); 
@@ -150,7 +148,7 @@
 
             try {
                 await syncGPS();
-                const res = await fetch(`http://127.0.0.1:8000/api/v1/search?query=${query}&lat=${userPos.lat}&lon=${userPos.lon}`);
+                const res = await fetch(`http://127.0.0.1:8000/api/v1/search?query=${encodeURIComponent(query)}&lat=${userPos.lat}&lon=${userPos.lon}`);
                 const data = await res.json();
                 
                 resultsDiv.innerHTML = '';
@@ -229,7 +227,8 @@
                     document.getElementById('resultBox').classList.remove('hidden');
                     
                     qrcode.clear();
-                    qrcode.makeCode(d.formatted_address);
+                    const mapUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
+                    qrcode.makeCode(mapUrl);
 
                     if (isSelfGenerate) {
                         if (targetMarker) map.removeLayer(targetMarker);
@@ -243,7 +242,6 @@
                 console.error("Fetch Intelligence Error:", err); 
                 alert("Failed to process location data. Please check your connection.");
             } finally {
-                // FIXED: Guarantees the loader ALWAYS hides, even if the backend crashes.
                 document.getElementById('loader').classList.add('hidden');
             }
         }
@@ -253,7 +251,6 @@
             fetchIntelligence(userPos.lat, userPos.lon, true);
         };
 
-        // --- INTEGRATED VOICE AI ENGINE ---
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (SpeechRecognition) {
             const recognition = new SpeechRecognition();
@@ -264,7 +261,7 @@
                 const transcript = event.results[0][0].transcript;
                 searchInput.value = transcript;
                 voiceBtn.querySelector('svg').classList.remove('mic-active');
-                performSearch(); // Voice auto-submits safely
+                performSearch(); 
             };
 
             recognition.onerror = () => { voiceBtn.querySelector('svg').classList.remove('mic-active'); };
@@ -278,7 +275,7 @@
             voiceBtn.style.display = 'none';
         }
 
-        function speak(text) { window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)); }
+        function speak(text) { window.speechSynthesis.speak(new SynthesisUtterance(text)); }
         function copyAddress() { const address = document.getElementById('addressText').innerText; if (address) { navigator.clipboard.writeText(address); alert("Address copied!"); } }
 
         function makeDraggable(elmnt) {
